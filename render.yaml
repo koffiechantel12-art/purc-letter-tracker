@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: purc-letter-tracker
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: AUTH_USERS
+        sync: false
