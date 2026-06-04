@@ -453,7 +453,7 @@ async function auditPage(req, params) {
   const q = trim(params.get("q") || "").toLowerCase();
   if (q) logs = logs.filter(l => [l.action, l.username, l.registry_number, l.details].some(v => String(v || "").toLowerCase().includes(q)));
   if (params.get("action")) logs = logs.filter(l => l.action === params.get("action"));
-  const actions = ["", "Created record", "Updated record", "Deleted record", "Completed follow-up", "Updated user role"];
+  const actions = ["", "Created record", "Updated record", "Deleted record", "Completed follow-up", "Updated user role", "Created user account"];
   return layout("Audit Log", `${hero("Audit Log", "Review who added, edited, deleted, or completed follow-up actions in the registry.")}<form class="panel filters" method="get" action="/audit"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search user, reference no., action, details..."><select name="action">${actions.map(a=>`<option value="${escapeHtml(a)}"${params.get("action")===a?" selected":""}>${a||"All Actions"}</option>`).join("")}</select><button>Search Audit</button><a class="btn" href="/audit">Reset</a></form><section class="panel"><h2>Activity Records</h2><p><strong>${logs.length}</strong> audit event(s) shown.</p><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Reference No.</th><th>Details</th></tr></thead><tbody>${logs.length ? logs.map(l=>`<tr><td>${escapeHtml(timestamp(l.created_at||""))}</td><td><strong>${escapeHtml(l.username||"STAFF")}</strong></td><td>${typeBadge(l.action||"")}</td><td>${escapeHtml(l.registry_number||"")}</td><td>${escapeHtml(l.details||"")}</td></tr>`).join("") : `<tr><td colspan="5">No audit activity found. Make sure supabase_schema.sql has been run.</td></tr>`}</tbody></table></section>`, req);
 }
 
@@ -462,12 +462,22 @@ async function usersPage(req, message = "") {
   for (const [username, record] of users) {
     try { await saveAppUser(username, record.password, record.role); } catch {}
   }
+  try {
+    const logs = await supabase("audit_logs?select=username&limit=1000");
+    for (const log of logs) {
+      const username = trim(log.username);
+      if (username && !users.has(username)) users.set(username, { password: "", role: roleFor(username), source: "audit" });
+    }
+  } catch {}
   const rows = [...users.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([username, record]) => {
     const role = roleFor(username, record.role);
     const fixedAdmin = username.toUpperCase() === "CHANTEL";
+    if (!record.password) {
+      return `<tr><td><strong>${escapeHtml(username)}</strong><br><small>Seen in audit log, not registered yet</small></td><td>Not registered</td><td><form method="post" action="/users/create" style="display:grid;grid-template-columns:1fr 160px auto;gap:8px;align-items:center"><input type="hidden" name="username" value="${escapeHtml(username)}"><input name="password" type="password" placeholder="Set password" required minlength="8"><select name="role"><option>Staff</option><option>Admin</option></select><button class="smallbtn">Create User</button></form></td></tr>`;
+    }
     return `<tr><td><strong>${escapeHtml(username)}</strong></td><td>${escapeHtml(role)}</td><td>${fixedAdmin ? "Permanent admin" : `<form method="post" action="/users/role" style="display:flex;gap:8px;align-items:center"><input type="hidden" name="username" value="${escapeHtml(username)}"><select name="role"><option${role === "Staff" ? " selected" : ""}>Staff</option><option${role === "Admin" ? " selected" : ""}>Admin</option></select><button class="smallbtn">Save Role</button></form>`}</td></tr>`;
   }).join("");
-  return layout("User Management", `${hero("User Management", "Admin-only control for who can manage sensitive registry actions.")}${message ? `<p class="error">${escapeHtml(message)}</p>` : ""}<section class="panel"><h2>Users</h2><p>CHANTEL is the permanent admin. Admin users can promote another user to admin or return them to staff.</p><table><thead><tr><th>User</th><th>Role</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></section>`, req);
+  return layout("User Management", `${hero("User Management", "Admin-only control for who can manage sensitive registry actions.")}${message ? `<p class="error">${escapeHtml(message)}</p>` : ""}<section class="panel"><h2>Users</h2><p>CHANTEL is the permanent admin. Audit-log names without accounts are shown so an admin can create their login.</p><table><thead><tr><th>User</th><th>Role</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></section>`, req);
 }
 
 async function exportPage(req, params) {
@@ -566,6 +576,17 @@ async function handle(req, res) {
         await updateAppUserRole(username, form.role);
         await audit("Updated user role", req, "", "", `${username} role changed to ${roleFor(username, form.role)}`);
       }
+      return redirect(res, "/users");
+    }
+    if (url.pathname === "/users/create" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
+      const form = await readBody(req);
+      const username = trim(form.username);
+      const password = form.password || "";
+      if (!username) return send(res, await usersPage(req, "Please enter a username."));
+      if (!passwordOk(password)) return send(res, await usersPage(req, passwordRulesText()));
+      await saveAppUser(username, password, roleFor(username, form.role));
+      await audit("Created user account", req, "", "", `${username} account created as ${roleFor(username, form.role)}`);
       return redirect(res, "/users");
     }
     if (url.pathname === "/utility-counts") return send(res, await utilityCounts(req));
