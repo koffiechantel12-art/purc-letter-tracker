@@ -115,8 +115,8 @@ function currentUser(req) {
 function currentRole(req) {
   const username = currentUser(req);
   if (!username) return "";
-  const users = loadUsers();
-  return roleFor(username, users.get(username)?.role);
+  const cookies = parseCookies(req);
+  return roleFor(username, cookies.purc_role || "Staff");
 }
 
 function isAdmin(req) {
@@ -191,6 +191,47 @@ async function supabase(pathname, { method = "GET", body, csv = false } = {}) {
   const value = csv ? text : (text ? JSON.parse(text) : null);
   if (method === "GET") responseCache.set(cacheKey, { time: Date.now(), value });
   return value;
+}
+
+async function loadAppUsers() {
+  try {
+    const rows = await supabase("app_users?select=*&order=username.asc&limit=1000");
+    if (Array.isArray(rows)) {
+      const users = new Map();
+      for (const row of rows) {
+        const username = trim(row.username);
+        const password = trim(row.password);
+        if (username && password) users.set(username, { password, role: roleFor(username, row.role) });
+      }
+      if (users.size) {
+        for (const [username, record] of loadUsers()) {
+          if (!users.has(username)) users.set(username, record);
+        }
+        return users;
+      }
+    }
+  } catch {
+    // Fall back to Render/local users if the Supabase user table is not ready.
+  }
+  return loadUsers();
+}
+
+async function saveAppUser(username, password, role = "Staff") {
+  username = trim(username);
+  const existing = await supabase(`app_users?select=id&username=eq.${encodeURIComponent(username)}&limit=1`);
+  const payload = { username, password, role: roleFor(username, role) };
+  if (existing.length) {
+    await supabase(`app_users?username=eq.${encodeURIComponent(username)}`, { method: "PATCH", body: payload });
+  } else {
+    await supabase("app_users", { method: "POST", body: payload });
+  }
+  responseCache.clear();
+}
+
+async function updateAppUserRole(username, role) {
+  username = trim(username);
+  await supabase(`app_users?username=eq.${encodeURIComponent(username)}`, { method: "PATCH", body: { role: roleFor(username, role) } });
+  responseCache.clear();
 }
 
 function layout(title, body, req) {
@@ -417,7 +458,10 @@ async function auditPage(req, params) {
 }
 
 async function usersPage(req, message = "") {
-  const users = loadUsers();
+  const users = await loadAppUsers();
+  for (const [username, record] of users) {
+    try { await saveAppUser(username, record.password, record.role); } catch {}
+  }
   const rows = [...users.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([username, record]) => {
     const role = roleFor(username, record.role);
     const fixedAdmin = username.toUpperCase() === "CHANTEL";
@@ -463,16 +507,17 @@ async function handle(req, res) {
     if (url.pathname === "/login" && req.method === "GET") return send(res, authPage("login"));
     if (url.pathname === "/login" && req.method === "POST") {
       const form = await readBody(req);
-      const users = loadUsers();
+      const users = await loadAppUsers();
       const username = trim(form.purc_login_user || form.username);
       const password = form.purc_login_pass || form.password || "";
-      if (users.get(username)?.password === password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(username)}; Path=/; SameSite=Lax`]);
+      const record = users.get(username);
+      if (record?.password === password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(username)}; Path=/; SameSite=Lax`, `purc_role=${encodeURIComponent(roleFor(username, record.role))}; Path=/; SameSite=Lax`]);
       return send(res, authPage("login", "Incorrect username or password."));
     }
     if (url.pathname === "/register" && req.method === "GET") return send(res, authPage("register"));
     if (url.pathname === "/register" && req.method === "POST") {
       const form = await readBody(req);
-      const users = loadUsers();
+      const users = await loadAppUsers();
       const username = trim(form.purc_login_user || form.username);
       const password = form.purc_login_pass || form.password || "";
       const confirmPassword = form.purc_confirm_pass || form.confirm_password || "";
@@ -480,25 +525,23 @@ async function handle(req, res) {
       if (users.has(username)) return send(res, authPage("register", "This username already exists."));
       if (password !== confirmPassword) return send(res, authPage("register", "The two passwords do not match."));
       if (!passwordOk(password)) return send(res, authPage("register", passwordRulesText()));
-      users.set(username, { password, role: roleFor(username) });
-      saveUsers(users);
+      await saveAppUser(username, password, roleFor(username));
       return send(res, authPage("login", "Registration successful. Please sign in with your new account."));
     }
     if (url.pathname === "/forgot-password" && req.method === "GET") return send(res, authPage("forgot"));
     if (url.pathname === "/forgot-password" && req.method === "POST") {
       const form = await readBody(req);
-      const users = loadUsers();
+      const users = await loadAppUsers();
       const username = trim(form.purc_login_user || form.username);
       const password = form.purc_login_pass || form.password || "";
       const confirmPassword = form.purc_confirm_pass || form.confirm_password || "";
       if (!users.has(username)) return send(res, authPage("forgot", "Username not found."));
       if (password !== confirmPassword) return send(res, authPage("forgot", "The two passwords do not match."));
       if (!passwordOk(password)) return send(res, authPage("forgot", passwordRulesText()));
-      users.set(username, { password, role: roleFor(username, users.get(username)?.role) });
-      saveUsers(users);
+      await saveAppUser(username, password, roleFor(username, users.get(username)?.role));
       return send(res, authPage("login", "Password reset successful. Please sign in with the new password."));
     }
-    if (url.pathname === "/logout") return redirect(res, "/login", [`purc_session=; Path=/; Max-Age=0`, `purc_user=; Path=/; Max-Age=0`]);
+    if (url.pathname === "/logout") return redirect(res, "/login", [`purc_session=; Path=/; Max-Age=0`, `purc_user=; Path=/; Max-Age=0`, `purc_role=; Path=/; Max-Age=0`]);
     if (!requireLogin(req, res)) return;
     if (!configured()) return send(res, layout("Supabase Setup Required", `<section class="panel"><h1>Supabase Setup Required</h1><p>Add SUPABASE_URL and SUPABASE_ANON_KEY in Render environment variables.</p></section>`, req));
     if (url.pathname === "/" && req.method === "GET") return send(res, letterForm(req));
@@ -517,11 +560,10 @@ async function handle(req, res) {
     if (url.pathname === "/users/role" && req.method === "POST") {
       if (!requireAdmin(req, res)) return;
       const form = await readBody(req);
-      const users = loadUsers();
+      const users = await loadAppUsers();
       const username = trim(form.username);
       if (users.has(username) && username.toUpperCase() !== "CHANTEL") {
-        users.set(username, { ...users.get(username), role: roleFor(username, form.role) });
-        saveUsers(users);
+        await updateAppUserRole(username, form.role);
         await audit("Updated user role", req, "", "", `${username} role changed to ${roleFor(username, form.role)}`);
       }
       return redirect(res, "/users");
