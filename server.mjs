@@ -245,19 +245,18 @@ function optionList(values, selected, first) {
   return `<option value="">${first}</option>` + values.map(v => `<option value="${escapeHtml(v)}"${selected === v ? " selected" : ""}>${escapeHtml(v)}</option>`).join("");
 }
 
-const sectors = ["Electricity", "Water", "Natural Gas", "Other", "Unassigned"];
+const sectors = ["Electricity", "Water", "Natural Gas", "Other"];
 const providersBySector = {
   Electricity: ["ECG", "NEDCo", "GRIDCo", "VRA", "Bui Power Authority", "Independent Power Producer"],
   Water: ["Ghana Water"],
   "Natural Gas": ["Ghana Gas"],
-  Other: ["Other"],
-  Unassigned: ["Unassigned"]
+  Other: ["Other"]
 };
 const allProviders = [...new Set(Object.values(providersBySector).flat())];
 
 function buildLetterPayload(form) {
-  const utilityService = form.utility_service === "Other" && trim(form.utility_service_other) ? trim(form.utility_service_other) : (form.utility_service || "Unassigned");
-  const utilityProvider = form.utility_provider === "Other" && trim(form.utility_provider_other) ? trim(form.utility_provider_other) : (form.utility_provider || "Unassigned");
+  const utilityService = form.utility_service === "Other" && trim(form.utility_service_other) ? trim(form.utility_service_other) : (form.utility_service || "Other");
+  const utilityProvider = form.utility_provider === "Other" && trim(form.utility_provider_other) ? trim(form.utility_provider_other) : (form.utility_provider || "Other");
   return {
     direction: form.direction || "Received",
     date_dispatched: form.date_dispatched,
@@ -287,8 +286,8 @@ async function audit(action, req, letterId, registryNumber, details) {
 
 function letterForm(req, values = {}, error = "", id = "") {
   const v = (name, fallback = "") => escapeHtml(values[name] ?? fallback);
-  const sector = values.utility_service || "Unassigned";
-  const provider = values.utility_provider || "Unassigned";
+  const sector = values.utility_service || "";
+  const provider = values.utility_provider || "";
   return layout(id ? "Edit Letter" : "New Letter", `${hero(id ? "Edit Letter" : "Register New Letter", "Executive Secretary correspondence registry for received and dispatched letters.")}${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
   <form class="panel grid" method="post" action="/save${id ? `?id=${encodeURIComponent(id)}` : ""}">
   <h2 class="form-title">Letter Details</h2>
@@ -299,13 +298,13 @@ function letterForm(req, values = {}, error = "", id = "") {
   <label>Date of Letter<input type="date" name="date_of_letter" value="${v("date_of_letter")}"></label>
   <label>No. of Letter<input name="letter_number" value="${v("letter_number")}"></label>
   <h2 class="form-title">Utility Classification</h2>
-  <label>Utility<select id="utility_service_select" name="utility_service" onchange="checkOther(this,'utility_service')">${optionList(sectors, sector, "Unassigned")}</select><span id="utility_service_other" class="other-inline"><input name="utility_service_other" id="utility_service_other_input" placeholder="Type utility sector"><a onclick="useList('utility_service')">Use list instead</a></span></label>
-  <label>Specific Utility / Provider<select id="utility_provider_select" name="utility_provider" onchange="checkOther(this,'utility_provider')">${optionList(allProviders, provider, "Unassigned")}</select><span id="utility_provider_other" class="other-inline"><input name="utility_provider_other" id="utility_provider_other_input" placeholder="Type provider name"><a onclick="useList('utility_provider')">Use list instead</a></span></label>
+  <label>Utility<select id="utility_service_select" name="utility_service" onchange="checkOther(this,'utility_service')" required>${optionList(sectors, sector, "Select Utility")}</select><span id="utility_service_other" class="other-inline"><input name="utility_service_other" id="utility_service_other_input" placeholder="Type utility sector"><a onclick="useList('utility_service')">Use list instead</a></span></label>
+  <label>Specific Utility / Provider<select id="utility_provider_select" name="utility_provider" onchange="checkOther(this,'utility_provider')" required>${optionList(allProviders, provider, "Select Provider")}</select><span id="utility_provider_other" class="other-inline"><input name="utility_provider_other" id="utility_provider_other_input" placeholder="Type provider name"><a onclick="useList('utility_provider')">Use list instead</a></span></label>
   <label class="wide">Subject<input name="subject" value="${v("subject")}" required></label>
   <h2 class="form-title">Assignment and Tracking</h2>
   <label>Action Officer<input name="action_officer" value="${v("action_officer")}"></label>
   <label>Department<input name="department" value="${v("department")}"></label>
-  <label>Status<select name="status">${["Open","In Progress","Closed"].map(s=>`<option${(values.status||"Open")===s?" selected":""}>${s}</option>`).join("")}</select></label>
+  <input type="hidden" name="status" value="${v("status", "Open")}">
   <label>Priority<select name="priority">${["Normal","Urgent"].map(s=>`<option${(values.priority||"Normal")===s?" selected":""}>${s}</option>`).join("")}</select></label>
   <label>Follow-up Reminder Date<input type="date" name="follow_up_date" value="${v("follow_up_date")}"><small>This will appear as a reminder on the dashboard until it is marked done.</small></label>
   <h2 class="form-title">Remarks</h2>
@@ -375,7 +374,7 @@ async function historyPage(req, params) {
   if (month) rows = rows.filter(r => String(r.date_dispatched || "").startsWith(month));
   const providerMap = new Map();
   for (const r of rows) {
-    const provider = r.utility_provider || "Unassigned";
+    const provider = r.utility_provider || "Other";
     const m = String(r.date_dispatched || "").slice(0, 7) || "Unknown";
     if (!providerMap.has(provider)) providerMap.set(provider, new Map());
     if (!providerMap.get(provider).has(m)) providerMap.get(provider).set(m, []);
@@ -401,7 +400,7 @@ async function deletePage(req) {
 
 async function utilityCounts(req) {
   const rows = await getLetters();
-  const counts = (key) => rows.reduce((m, r) => (m.set(r[key] || "Unassigned", (m.get(r[key] || "Unassigned") || 0) + 1), m), new Map());
+  const counts = (key) => rows.reduce((m, r) => (m.set(r[key] || "Other", (m.get(r[key] || "Other") || 0) + 1), m), new Map());
   const render = (map) => [...map.entries()].map(([k,v]) => `<div class="count"><span>${escapeHtml(k)}</span><strong>${v}</strong></div>`).join("");
   return layout("Utility Counts", `${hero("Utility Counts", "Number of letters or documents recorded for each utility sector and provider.")}<section class="workspace"><div class="panel"><h2>By Provider</h2>${render(counts("utility_provider"))}</div><div class="panel"><h2>By Utility Sector</h2>${render(counts("utility_service"))}</div></section>`, req);
 }
@@ -579,7 +578,7 @@ function authStyles() {
 }
 
 function clientScript() {
-  return `const providersBySector={Electricity:['ECG','NEDCo','GRIDCo','VRA','Bui Power Authority','Independent Power Producer'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],Other:['Other'],Unassigned:['Unassigned']};function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const vals=providersBySector[s.value]||Object.values(providersBySector).flat();p.innerHTML='';if(all)p.innerHTML='<option value="">All Providers</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>filterProviders(s,p));filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='Unassigned';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k)}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}function clearAuthFields(){document.querySelectorAll('form[data-auth] input').forEach(i=>{if(i.type==='checkbox'){i.checked=false;return}i.value='';i.setAttribute('autocomplete','new-password')});document.querySelectorAll('.strength').forEach(b=>{b.className='strength';b.textContent=''})}function scheduleAuthClear(){if(!document.querySelector('form[data-auth]'))return;[0,150,600,1400].forEach(ms=>setTimeout(clearAuthFields,ms))}window.addEventListener('pageshow',scheduleAuthClear);document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}));scheduleAuthClear()})`;
+  return `const providersBySector={Electricity:['ECG','NEDCo','GRIDCo','VRA','Bui Power Authority','Independent Power Producer'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],Other:['Other']};function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const vals=providersBySector[s.value]||Object.values(providersBySector).flat();p.innerHTML='';p.innerHTML='<option value="">'+(all?'All Providers':'Select Provider')+'</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>filterProviders(s,p));filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k)}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}function clearAuthFields(){document.querySelectorAll('form[data-auth] input').forEach(i=>{if(i.type==='checkbox'){i.checked=false;return}i.value='';i.setAttribute('autocomplete','new-password')});document.querySelectorAll('.strength').forEach(b=>{b.className='strength';b.textContent=''})}function scheduleAuthClear(){if(!document.querySelector('form[data-auth]'))return;[0,150,600,1400].forEach(ms=>setTimeout(clearAuthFields,ms))}window.addEventListener('pageshow',scheduleAuthClear);document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}));scheduleAuthClear()})`;
 }
 
 http.createServer(handle).listen(PORT, HOST, () => {
