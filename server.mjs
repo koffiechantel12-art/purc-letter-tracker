@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const SESSION = process.env.SESSION_SECRET || "purc-letter-tracker-session";
+const OFFICIAL_LOGO_URL = "https://portal.purc.com.gh/sig_theme/static/src/img/purc_logo.png";
 
 function trim(value = "") {
   return String(value).trim();
@@ -170,6 +171,15 @@ function layout(title, body, req) {
   <main>${body}</main></body></html>`;
 }
 
+function authPreviewShell() {
+  return `<div class="preview" aria-hidden="true">
+    <div class="preview-top"><span>Accra, Ghana&nbsp;&nbsp;0302218300</span><em>Protecting the interest of consumers &amp; utility service providers</em></div>
+    <div class="preview-head"><div class="preview-brand"><img src="/purc_logo.png" alt=""><div><b>PURC LETTER TRACKER</b><small>PUBLIC UTILITIES REGULATORY COMMISSION</small></div></div></div>
+    <div class="preview-nav"><span>New Letter</span><span>Dashboard</span><span>Delete Records</span></div>
+    <div class="preview-main"><section><h1>Dashboard</h1><p>Welcome back. Here's what's happening with your correspondence.</p></section></div>
+  </div>`;
+}
+
 function authPage(kind, message = "") {
   const isRegister = kind === "register";
   const isForgot = kind === "forgot";
@@ -178,7 +188,7 @@ function authPage(kind, message = "") {
   const subtitle = isRegister ? "Create a user account for the letter tracker" : isForgot ? "Reset the password for an existing user" : "Existing users sign in to access the registry";
   const extra = isRegister || isForgot ? `<label>${isForgot ? "New " : ""}Password<input name="password" type="password" minlength="8" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p><label>Confirm ${isForgot ? "New " : ""}Password<input name="confirm_password" type="password" minlength="8" required></label>` : `<label>Password<input name="password" type="password" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p>`;
   const links = isRegister ? `<a href="/login">Existing User Sign In</a><a href="/forgot-password">Forgot Password?</a>` : isForgot ? `<a href="/login">Back to Sign In</a><a href="/register">Register New User</a>` : `<a href="/register">Register New User</a><a href="/forgot-password">Forgot Password?</a>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PURC Letter Tracker</title><style>${authStyles()}</style><script>${clientScript()}</script></head><body><div class="preview"></div><main class="login-card"><img src="/purc_logo.png" alt=""><h1>PURC LETTER TRACKER</h1><h2>PUBLIC UTILITIES REGULATORY COMMISSION</h2><p>${subtitle}</p>${message ? `<div class="login-message">${escapeHtml(message)}</div>` : ""}<form method="post" action="${action}" autocomplete="off"><label>Username<input name="username" autocomplete="off" required></label>${extra}<button>${button}</button></form><div class="auth-links">${links}</div></main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PURC Letter Tracker</title><style>${authStyles()}</style><script>${clientScript()}</script></head><body>${authPreviewShell()}<main class="login-card"><img src="/purc_logo.png" alt="PURC logo"><h1>PURC LETTER TRACKER</h1><h2>PUBLIC UTILITIES REGULATORY COMMISSION</h2><p>${subtitle}</p>${message ? `<div class="login-message">${escapeHtml(message)}</div>` : ""}<form method="post" action="${action}" autocomplete="off"><label>Username<input name="username" autocomplete="off" required></label>${extra}<button>${button}</button></form><div class="auth-links">${links}</div></main></body></html>`;
 }
 
 function requireLogin(req, res) {
@@ -389,7 +399,15 @@ async function editPage(req, params) {
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
-    if (url.pathname === "/purc_logo.png") return send(res, fs.readFileSync(path.join(__dirname, "public", "purc_logo.png")), 200, "image/png");
+    if (url.pathname === "/purc_logo.png") {
+      const logoFiles = [
+        path.join(__dirname, "public", "purc_logo.png"),
+        path.join(__dirname, "purc_logo.png")
+      ];
+      const logoFile = logoFiles.find(file => fs.existsSync(file));
+      if (logoFile) return send(res, fs.readFileSync(logoFile), 200, "image/png");
+      return redirect(res, OFFICIAL_LOGO_URL);
+    }
     if (url.pathname === "/login" && req.method === "GET") return send(res, authPage("login"));
     if (url.pathname === "/login" && req.method === "POST") {
       const form = await readBody(req);
@@ -473,7 +491,7 @@ function styles() {
 }
 
 function authStyles() {
-  return `:root{--blue:#465ca8;--red:#d6293b;--ink:#081d36;--line:#d8dee8}*{box-sizing:border-box}body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#dfe7f0;color:var(--ink);min-height:100vh;display:grid;place-items:center;overflow:auto}.preview{position:fixed;inset:0;background:linear-gradient(180deg,rgba(70,92,168,.85),rgba(7,26,51,.75)),url('/purc_logo.png') 80px 90px/220px no-repeat;filter:blur(8px);opacity:.45}.login-card{position:relative;width:min(100%,470px);background:rgba(255,255,255,.96);border:1px solid rgba(255,255,255,.9);border-radius:10px;box-shadow:0 30px 70px rgba(8,29,54,.34);padding:38px;overflow:hidden}.login-card:before{content:'';position:absolute;left:0;top:0;width:100%;height:7px;background:linear-gradient(90deg,var(--red) 0 34%,var(--blue) 34%)}.login-card img{display:block;width:78px;height:78px;object-fit:contain;margin:0 auto 10px}.login-card h1{text-align:center;font-size:25px;margin:0;color:#001f3f}.login-card h2{text-align:center;color:var(--blue);font-size:14px;margin:8px 0 0}.login-card p{text-align:center;color:#51627a}.login-message{background:#fde8e7;color:#b42318;padding:12px;margin:14px 0;font-weight:700}label{display:block;margin-top:15px;font-size:12px;font-weight:900;text-transform:uppercase;color:#405571}input{width:100%;padding:14px;border:1px solid #bfc9d6;margin-top:7px;font:inherit}.show{display:flex;gap:8px;align-items:center;text-transform:none}.show input{width:auto}.strength{margin-top:10px;padding:0}.strength.strong{background:#e6f5ee;color:#08734a;padding:9px;font-weight:900}.strength.weak{background:#fde8e7;color:#b42318;padding:9px;font-weight:900}.rules{text-align:left!important;font-size:12px}.login-card button{width:100%;margin-top:24px;background:var(--blue);color:white;border:0;padding:14px 18px;font:inherit;font-weight:900;cursor:pointer;box-shadow:0 10px 22px rgba(70,92,168,.25)}.auth-links{display:flex;justify-content:space-between;margin-top:18px}.auth-links a{color:var(--blue);font-weight:900;text-decoration:none;font-size:13px}`;
+  return `:root{--blue:#465ca8;--red:#d6293b;--navy:#071a33;--ink:#081d36;--line:#d8dee8}*{box-sizing:border-box}body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#dfe7f0;color:var(--ink);min-height:100vh;display:grid;place-items:center;overflow:auto}.preview{position:fixed;inset:0;background:#eef4f9;filter:blur(9px);transform:scale(1.03);opacity:.58;pointer-events:none}.preview:after{content:'';position:absolute;inset:0;background:rgba(7,26,51,.24)}.preview-top{height:34px;background:var(--blue);color:white;display:grid;grid-template-columns:1fr 1.5fr 1fr;align-items:center;padding:0 36px;font-size:13px;font-weight:800}.preview-top em{text-align:center}.preview-head{height:116px;background:white;display:flex;align-items:center;padding:0 48px}.preview-brand{display:flex;align-items:center;gap:16px}.preview-brand img{width:78px;height:78px;object-fit:contain}.preview-brand b{display:block;color:var(--red);font-size:26px;font-weight:900}.preview-brand small{display:block;color:var(--blue);font-size:12px;font-weight:900}.preview-nav{height:54px;background:var(--navy);display:flex;gap:34px;align-items:center;padding:0 52px;color:white;text-transform:uppercase;font-weight:900}.preview-main{padding:30px 40px}.preview-main section{height:165px;background:white;border-left:5px solid var(--red);border-radius:8px;padding:34px;box-shadow:0 16px 38px rgba(8,29,54,.12)}.preview-main h1{margin:0;font-size:34px;text-transform:uppercase}.preview-main p{color:#52627d}.login-card{position:relative;width:min(100%,470px);background:rgba(255,255,255,.96);border:1px solid rgba(255,255,255,.9);border-radius:10px;box-shadow:0 30px 70px rgba(8,29,54,.34);padding:38px;overflow:hidden}.login-card:before{content:'';position:absolute;left:0;top:0;width:100%;height:7px;background:linear-gradient(90deg,var(--red) 0 34%,var(--blue) 34%)}.login-card img{display:block;width:78px;height:78px;object-fit:contain;margin:0 auto 10px}.login-card h1{text-align:center;font-size:25px;margin:0;color:#001f3f}.login-card h2{text-align:center;color:var(--blue);font-size:14px;margin:8px 0 0}.login-card p{text-align:center;color:#51627a}.login-message{background:#fde8e7;color:#b42318;padding:12px;margin:14px 0;font-weight:700}label{display:block;margin-top:15px;font-size:12px;font-weight:900;text-transform:uppercase;color:#405571}input{width:100%;padding:14px;border:1px solid #bfc9d6;margin-top:7px;font:inherit}.show{display:flex;gap:8px;align-items:center;text-transform:none}.show input{width:auto}.strength{margin-top:10px;padding:0}.strength.strong{background:#e6f5ee;color:#08734a;padding:9px;font-weight:900}.strength.weak{background:#fde8e7;color:#b42318;padding:9px;font-weight:900}.rules{text-align:left!important;font-size:12px}.login-card button{width:100%;margin-top:24px;background:var(--blue);color:white;border:0;padding:14px 18px;font:inherit;font-weight:900;cursor:pointer;box-shadow:0 10px 22px rgba(70,92,168,.25)}.auth-links{display:flex;justify-content:space-between;margin-top:18px}.auth-links a{color:var(--blue);font-weight:900;text-decoration:none;font-size:13px}@media(max-width:650px){.preview-head{padding:0 22px}.preview-brand b{font-size:20px}.preview-nav{padding:0 18px;gap:18px}.login-card{width:calc(100% - 24px);padding:30px}}`;
 }
 
 function clientScript() {
