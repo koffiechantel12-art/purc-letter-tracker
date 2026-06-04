@@ -45,6 +45,8 @@ function readConfigFile() {
 const fileConfig = readConfigFile();
 const SUPABASE_URL = (process.env.SUPABASE_URL || fileConfig.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || fileConfig.SUPABASE_ANON_KEY || "";
+const CACHE_TTL_MS = 15000;
+const responseCache = new Map();
 
 function configured() {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
@@ -144,6 +146,13 @@ function send(res, html, status = 200, type = "text/html; charset=utf-8", extra 
 
 async function supabase(pathname, { method = "GET", body, csv = false } = {}) {
   if (!configured()) throw new Error("Supabase is not configured.");
+  const cacheKey = `${method}:${csv ? "csv" : "json"}:${pathname}`;
+  if (method === "GET") {
+    const cached = responseCache.get(cacheKey);
+    if (cached && Date.now() - cached.time < CACHE_TTL_MS) return cached.value;
+  } else {
+    responseCache.clear();
+  }
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
     method,
     headers: {
@@ -156,7 +165,9 @@ async function supabase(pathname, { method = "GET", body, csv = false } = {}) {
   });
   const text = await response.text();
   if (!response.ok) throw new Error(text || `Supabase request failed: ${response.status}`);
-  return csv ? text : (text ? JSON.parse(text) : null);
+  const value = csv ? text : (text ? JSON.parse(text) : null);
+  if (method === "GET") responseCache.set(cacheKey, { time: Date.now(), value });
+  return value;
 }
 
 function layout(title, body, req) {
@@ -304,8 +315,8 @@ function tableRows(rows, includeAction = true) {
 }
 
 async function dashboard(req, params) {
-  const rows = filterRows(await getLetters(), params);
   const all = await getLetters();
+  const rows = filterRows(all, params);
   const activeReminders = all.filter(r => r.follow_up_date && r.status !== "Closed");
   const due = activeReminders.filter(r => r.follow_up_date <= todayIso());
   const reminder = activeReminders.length ? `<details class="reminder"><summary><span>Follow-up Reminders <b>${activeReminders.length}</b><small>${activeReminders.length} letter(s) need follow-up action. Don't forget to keep your correspondence on track.</small></span></summary><div>${activeReminders.map(r => `<div class="reminder-row"><div><strong>${escapeHtml(r.registry_number)}</strong> · ${escapeHtml(r.utility_provider)}<br>${escapeHtml(r.subject)}<br><small>Action officer: ${escapeHtml(r.action_officer || "Not assigned")}</small></div><div><strong class="due">${r.follow_up_date <= todayIso() ? "Due now" : "Upcoming"}: ${escapeHtml(r.follow_up_date)}</strong><br><a href="/edit?id=${r.id}">Review letter</a><form method="post" action="/complete-follow-up?id=${r.id}" style="display:inline"><button class="smallbtn">Mark Done</button></form></div></div>`).join("")}</div></details>` : "";
@@ -405,7 +416,7 @@ async function handle(req, res) {
         path.join(__dirname, "purc_logo.png")
       ];
       const logoFile = logoFiles.find(file => fs.existsSync(file));
-      if (logoFile) return send(res, fs.readFileSync(logoFile), 200, "image/png");
+      if (logoFile) return send(res, fs.readFileSync(logoFile), 200, "image/png", { "Cache-Control": "public, max-age=86400" });
       return redirect(res, OFFICIAL_LOGO_URL);
     }
     if (url.pathname === "/login" && req.method === "GET") return send(res, authPage("login"));
