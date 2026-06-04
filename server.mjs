@@ -54,12 +54,21 @@ function configured() {
 
 const userFile = path.join(__dirname, "users_config.txt");
 
+function roleFor(username, role = "Staff") {
+  if (trim(username).toUpperCase() === "CHANTEL") return "Admin";
+  return role === "Admin" ? "Admin" : "Staff";
+}
+
 function loadUsers() {
   const users = new Map();
   const envUsers = process.env.AUTH_USERS || "";
   for (const part of envUsers.split(";")) {
     const idx = part.indexOf(":");
-    if (idx > -1) users.set(trim(part.slice(0, idx)), trim(part.slice(idx + 1)));
+    if (idx > -1) {
+      const username = trim(part.slice(0, idx));
+      const password = trim(part.slice(idx + 1));
+      if (username && password) users.set(username, { password, role: roleFor(username) });
+    }
   }
   const candidates = [userFile, path.join(__dirname, "..", "cpp-supabase", "users_config.txt")];
   for (const file of candidates) {
@@ -69,20 +78,23 @@ function loadUsers() {
       if (idx < 0) continue;
       const username = trim(line.slice(0, idx));
       let password = trim(line.slice(idx + 1));
+      let role = roleFor(username);
       const roleIdx = password.lastIndexOf(":");
       if (roleIdx > -1 && ["Admin", "Staff"].includes(password.slice(roleIdx + 1).trim())) {
+        role = roleFor(username, password.slice(roleIdx + 1).trim());
         password = password.slice(0, roleIdx).trim();
       }
-      if (username && password) users.set(username, password);
+      if (username && password) users.set(username, { password, role });
     }
     if (users.size) break;
   }
-  if (!users.size) users.set("admin", "Purc@123");
+  if (!users.size) users.set("CHANTEL", { password: "Purc@123", role: "Admin" });
+  for (const [username, record] of users) users.set(username, { ...record, role: roleFor(username, record.role) });
   return users;
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(userFile, [...users.entries()].map(([u, p]) => `${u}:${p}`).join("\n") + "\n");
+  fs.writeFileSync(userFile, [...users.entries()].map(([u, record]) => `${u}:${record.password}:${roleFor(u, record.role)}`).join("\n") + "\n");
 }
 
 function parseCookies(req) {
@@ -98,6 +110,17 @@ function currentUser(req) {
   const cookies = parseCookies(req);
   if (cookies.purc_session !== SESSION) return "";
   return trim(cookies.purc_user || "STAFF");
+}
+
+function currentRole(req) {
+  const username = currentUser(req);
+  if (!username) return "";
+  const users = loadUsers();
+  return roleFor(username, users.get(username)?.role);
+}
+
+function isAdmin(req) {
+  return currentRole(req) === "Admin";
 }
 
 function passwordOk(password) {
@@ -172,13 +195,15 @@ async function supabase(pathname, { method = "GET", body, csv = false } = {}) {
 
 function layout(title, body, req) {
   const user = currentUser(req);
+  const admin = isAdmin(req);
   const active = (name) => title === name ? " class='active'" : "";
+  const adminLinks = admin ? `<a${active("Delete Records")} href="/delete">Delete Records</a><a${active("User Management")} href="/users">Users</a>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}</style>
   <script>${clientScript()}</script></head><body>
   <div class="top-strip"><div>Accra, Ghana &nbsp; 0302218300</div><em>Protecting the interest of consumers &amp; utility service providers</em><div></div></div>
-  <header class="app-head"><div class="brand"><img src="/purc_logo.png" alt="PURC logo"><div><strong>PURC LETTER TRACKER</strong><span>PUBLIC UTILITIES REGULATORY COMMISSION <small>| GHANA</small></span></div></div><div class="head-actions"><span class="chip">${longDate()}</span><span class="chip">${escapeHtml(user || "STAFF")}</span></div></header>
-  <nav class="nav"><a${active("New Letter")} href="/">New Letter</a><a${active("Dashboard")} href="/dashboard">Dashboard</a><a${active("Delete Records")} href="/delete">Delete Records</a><a${active("Audit Log")} href="/audit">Audit Log</a><span></span><a class="signout" href="/logout">Sign Out</a></nav>
+  <header class="app-head"><div class="brand"><img src="/purc_logo.png" alt="PURC logo"><div><strong>PURC LETTER TRACKER</strong><span>PUBLIC UTILITIES REGULATORY COMMISSION <small>| GHANA</small></span></div></div><div class="head-actions"><span class="chip">${longDate()}</span><span class="chip">${escapeHtml(user || "STAFF")} ${admin ? "(ADMIN)" : ""}</span></div></header>
+  <nav class="nav"><a${active("New Letter")} href="/">New Letter</a><a${active("Dashboard")} href="/dashboard">Dashboard</a>${adminLinks}<a${active("Audit Log")} href="/audit">Audit Log</a><span></span><a class="signout" href="/logout">Sign Out</a></nav>
   <main>${body}</main></body></html>`;
 }
 
@@ -208,6 +233,12 @@ function requireLogin(req, res) {
     return false;
   }
   return true;
+}
+
+function requireAdmin(req, res) {
+  if (isAdmin(req)) return true;
+  send(res, layout("Access Denied", `<section class="panel"><h1>Access Denied</h1><p class="error">Only an admin can open this page or perform this action.</p></section>`, req), 403);
+  return false;
 }
 
 function optionList(values, selected, first) {
@@ -318,24 +349,24 @@ async function dashboard(req, params) {
   const all = await getLetters();
   const rows = filterRows(all, params);
   const activeReminders = all.filter(r => r.follow_up_date && r.status !== "Closed");
-  const due = activeReminders.filter(r => r.follow_up_date <= todayIso());
-  const reminder = activeReminders.length ? `<details class="reminder"><summary><span>Follow-up Reminders <b>${activeReminders.length}</b><small>${activeReminders.length} letter(s) need follow-up action. Don't forget to keep your correspondence on track.</small></span></summary><div>${activeReminders.map(r => `<div class="reminder-row"><div><strong>${escapeHtml(r.registry_number)}</strong> · ${escapeHtml(r.utility_provider)}<br>${escapeHtml(r.subject)}<br><small>Action officer: ${escapeHtml(r.action_officer || "Not assigned")}</small></div><div><strong class="due">${r.follow_up_date <= todayIso() ? "Due now" : "Upcoming"}: ${escapeHtml(r.follow_up_date)}</strong><br><a href="/edit?id=${r.id}">Review letter</a><form method="post" action="/complete-follow-up?id=${r.id}" style="display:inline"><button class="smallbtn">Mark Done</button></form></div></div>`).join("")}</div></details>` : "";
+  const admin = isAdmin(req);
+  const reminder = activeReminders.length ? `<details class="reminder"><summary><span>Follow-up Reminders <b>${activeReminders.length}</b><small>${activeReminders.length} letter(s) need follow-up action. Don't forget to keep your correspondence on track.</small></span></summary><div>${activeReminders.map(r => `<div class="reminder-row"><div><strong>${escapeHtml(r.registry_number)}</strong> &middot; ${escapeHtml(r.utility_provider)}<br>${escapeHtml(r.subject)}<br><small>Action officer: ${escapeHtml(r.action_officer || "Not assigned")}</small></div><div><strong class="due">${r.follow_up_date <= todayIso() ? "Due now" : "Upcoming"}: ${escapeHtml(r.follow_up_date)}</strong>${admin ? `<br><a href="/edit?id=${r.id}">Review letter</a><form method="post" action="/complete-follow-up?id=${r.id}" style="display:inline"><button class="smallbtn">Mark Done</button></form>` : ""}</div></div>`).join("")}</div></details>` : "";
   const body = `<div class="dashboard">${hero("Dashboard", `Welcome back, ${currentUser(req) || "STAFF"}. Here's what's happening with your correspondence.`)}
   <section class="stats"><div><span>Total Letters</span><strong>${all.length}</strong><small>All correspondence</small></div><div class="received"><span>Received</span><strong>${all.filter(r=>r.direction==="Received").length}</strong><small>Awaiting action</small></div><div class="sent-card"><span>Dispatched</span><strong>${all.filter(r=>r.direction==="Sent").length}</strong><small>Sent to providers</small></div><div class="due-card"><span>Due Follow-up</span><strong>${activeReminders.length}</strong><small>Needs attention</small></div></section>
-  ${reminder}<div class="layout"><section><div class="tabs"><a class="${!params.get("direction")?"active":""}" href="/dashboard">All</a><a class="${params.get("direction")==="Received"?"active":""}" href="/dashboard?direction=Received">Received</a><a class="${params.get("direction")==="Sent"?"active":""}" href="/dashboard?direction=Sent">Dispatched</a></div>${recordCard(rows, "/dashboard", params)}</section>${quickLinks()}</div></div>`;
+  ${reminder}<div class="layout"><section><div class="tabs"><a class="${!params.get("direction")?"active":""}" href="/dashboard">All</a><a class="${params.get("direction")==="Received"?"active":""}" href="/dashboard?direction=Received">Received</a><a class="${params.get("direction")==="Sent"?"active":""}" href="/dashboard?direction=Sent">Dispatched</a></div>${recordCard(rows, "/dashboard", params, admin)}</section>${quickLinks(admin)}</div></div>`;
   return layout("Dashboard", body, req);
 }
 
-function recordCard(rows, action, params) {
-  return `<section class="record-card"><header><div><h2>Recent Letters</h2><p>Search correspondence records from Supabase.</p></div></header>${filterForm(action, params)}<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Sector</th><th>Provider</th><th>Subject</th><th>Officer</th><th>Status</th><th>Action</th></tr></thead><tbody>${tableRows(rows)}</tbody></table></div><p class="empty">Showing ${rows.length} record(s)</p></section>`;
+function recordCard(rows, action, params, admin = false) {
+  return `<section class="record-card"><header><div><h2>Recent Letters</h2><p>Search correspondence records from Supabase.</p></div></header>${filterForm(action, params)}<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Sector</th><th>Provider</th><th>Subject</th><th>Officer</th><th>Status</th>${admin ? "<th>Action</th>" : ""}</tr></thead><tbody>${tableRows(rows, admin)}</tbody></table></div><p class="empty">Showing ${rows.length} record(s)</p></section>`;
 }
 
 function filterForm(action, params, label = "Search") {
   return `<form class="filters" method="get" action="${action}"><input name="q" value="${escapeHtml(params.get("q") || "")}" placeholder="Search reference no., sender, subject..."><select id="filter_utility" name="utility">${optionList(sectors, params.get("utility") || "", "All Utility Sectors")}</select><select name="provider" data-provider-filter="filter_utility" data-allow-all="true">${optionList(allProviders, params.get("provider") || "", "All Providers")}</select><button>${label}</button><a class="btn" href="${action}">Reset</a></form>`;
 }
 
-function quickLinks() {
-  return `<aside class="quick"><h2>Quick Links</h2><a href="/">Register New Letter</a><a href="/history">View Letter History</a><a href="/export">Export Registry Report</a><a href="/utility-counts">View Utility Counts</a></aside>`;
+function quickLinks(admin = false) {
+  return `<aside class="quick"><h2>Quick Links</h2><a href="/">Register New Letter</a><a href="/history">View Letter History</a><a href="/export">Export Registry Report</a><a href="/utility-counts">View Utility Counts</a>${admin ? `<a href="/users">Manage Users</a>` : ""}</aside>`;
 }
 
 async function historyPage(req, params) {
@@ -378,11 +409,22 @@ async function utilityCounts(req) {
 async function auditPage(req, params) {
   let logs = [];
   try { logs = await supabase("audit_logs?select=*&order=created_at.desc&limit=300"); } catch {}
+  if (!isAdmin(req)) logs = logs.filter(l => String(l.username || "").toUpperCase() === currentUser(req).toUpperCase());
   const q = trim(params.get("q") || "").toLowerCase();
   if (q) logs = logs.filter(l => [l.action, l.username, l.registry_number, l.details].some(v => String(v || "").toLowerCase().includes(q)));
   if (params.get("action")) logs = logs.filter(l => l.action === params.get("action"));
-  const actions = ["", "Created record", "Updated record", "Deleted record", "Completed follow-up"];
+  const actions = ["", "Created record", "Updated record", "Deleted record", "Completed follow-up", "Updated user role"];
   return layout("Audit Log", `${hero("Audit Log", "Review who added, edited, deleted, or completed follow-up actions in the registry.")}<form class="panel filters" method="get" action="/audit"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search user, reference no., action, details..."><select name="action">${actions.map(a=>`<option value="${escapeHtml(a)}"${params.get("action")===a?" selected":""}>${a||"All Actions"}</option>`).join("")}</select><button>Search Audit</button><a class="btn" href="/audit">Reset</a></form><section class="panel"><h2>Activity Records</h2><p><strong>${logs.length}</strong> audit event(s) shown.</p><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Reference No.</th><th>Details</th></tr></thead><tbody>${logs.length ? logs.map(l=>`<tr><td>${escapeHtml(timestamp(l.created_at||""))}</td><td><strong>${escapeHtml(l.username||"STAFF")}</strong></td><td>${typeBadge(l.action||"")}</td><td>${escapeHtml(l.registry_number||"")}</td><td>${escapeHtml(l.details||"")}</td></tr>`).join("") : `<tr><td colspan="5">No audit activity found. Make sure supabase_schema.sql has been run.</td></tr>`}</tbody></table></section>`, req);
+}
+
+async function usersPage(req, message = "") {
+  const users = loadUsers();
+  const rows = [...users.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([username, record]) => {
+    const role = roleFor(username, record.role);
+    const fixedAdmin = username.toUpperCase() === "CHANTEL";
+    return `<tr><td><strong>${escapeHtml(username)}</strong></td><td>${escapeHtml(role)}</td><td>${fixedAdmin ? "Permanent admin" : `<form method="post" action="/users/role" style="display:flex;gap:8px;align-items:center"><input type="hidden" name="username" value="${escapeHtml(username)}"><select name="role"><option${role === "Staff" ? " selected" : ""}>Staff</option><option${role === "Admin" ? " selected" : ""}>Admin</option></select><button class="smallbtn">Save Role</button></form>`}</td></tr>`;
+  }).join("");
+  return layout("User Management", `${hero("User Management", "Admin-only control for who can manage sensitive registry actions.")}${message ? `<p class="error">${escapeHtml(message)}</p>` : ""}<section class="panel"><h2>Users</h2><p>CHANTEL is the permanent admin. Admin users can promote another user to admin or return them to staff.</p><table><thead><tr><th>User</th><th>Role</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></section>`, req);
 }
 
 async function exportPage(req, params) {
@@ -425,7 +467,7 @@ async function handle(req, res) {
       const users = loadUsers();
       const username = trim(form.purc_login_user || form.username);
       const password = form.purc_login_pass || form.password || "";
-      if (users.get(username) === password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(username)}; Path=/; SameSite=Lax`]);
+      if (users.get(username)?.password === password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(username)}; Path=/; SameSite=Lax`]);
       return send(res, authPage("login", "Incorrect username or password."));
     }
     if (url.pathname === "/register" && req.method === "GET") return send(res, authPage("register"));
@@ -439,7 +481,7 @@ async function handle(req, res) {
       if (users.has(username)) return send(res, authPage("register", "This username already exists."));
       if (password !== confirmPassword) return send(res, authPage("register", "The two passwords do not match."));
       if (!passwordOk(password)) return send(res, authPage("register", passwordRulesText()));
-      users.set(username, password);
+      users.set(username, { password, role: roleFor(username) });
       saveUsers(users);
       return send(res, authPage("login", "Registration successful. Please sign in with your new account."));
     }
@@ -453,7 +495,7 @@ async function handle(req, res) {
       if (!users.has(username)) return send(res, authPage("forgot", "Username not found."));
       if (password !== confirmPassword) return send(res, authPage("forgot", "The two passwords do not match."));
       if (!passwordOk(password)) return send(res, authPage("forgot", passwordRulesText()));
-      users.set(username, password);
+      users.set(username, { password, role: roleFor(username, users.get(username)?.role) });
       saveUsers(users);
       return send(res, authPage("login", "Password reset successful. Please sign in with the new password."));
     }
@@ -464,11 +506,33 @@ async function handle(req, res) {
     if (url.pathname === "/dashboard") return send(res, await dashboard(req, url.searchParams));
     if (url.pathname === "/new") return send(res, letterForm(req));
     if (url.pathname === "/history") return send(res, await historyPage(req, url.searchParams));
-    if (url.pathname === "/delete" && req.method === "GET") return send(res, await deletePage(req));
+    if (url.pathname === "/delete" && req.method === "GET") {
+      if (!requireAdmin(req, res)) return;
+      return send(res, await deletePage(req));
+    }
     if (url.pathname === "/audit") return send(res, await auditPage(req, url.searchParams));
+    if (url.pathname === "/users" && req.method === "GET") {
+      if (!requireAdmin(req, res)) return;
+      return send(res, await usersPage(req));
+    }
+    if (url.pathname === "/users/role" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
+      const form = await readBody(req);
+      const users = loadUsers();
+      const username = trim(form.username);
+      if (users.has(username) && username.toUpperCase() !== "CHANTEL") {
+        users.set(username, { ...users.get(username), role: roleFor(username, form.role) });
+        saveUsers(users);
+        await audit("Updated user role", req, "", "", `${username} role changed to ${roleFor(username, form.role)}`);
+      }
+      return redirect(res, "/users");
+    }
     if (url.pathname === "/utility-counts") return send(res, await utilityCounts(req));
     if (url.pathname === "/export") return send(res, await exportPage(req, url.searchParams));
-    if (url.pathname === "/edit") return send(res, await editPage(req, url.searchParams));
+    if (url.pathname === "/edit") {
+      if (!requireAdmin(req, res)) return;
+      return send(res, await editPage(req, url.searchParams));
+    }
     if (url.pathname === "/export-csv") {
       const rows = filterRows(await getLetters(), url.searchParams).filter(r => !url.searchParams.get("direction") || r.direction === url.searchParams.get("direction"));
       return send(res, toCsv(rows), 200, "text/csv; charset=utf-8", { "Content-Disposition": 'attachment; filename="purc-letter-register.csv"' });
@@ -477,6 +541,7 @@ async function handle(req, res) {
       const form = await readBody(req);
       if (!form.date_dispatched || !form.registry_number || !form.sender_receiver || !form.subject) return send(res, letterForm(req, form, "Please complete all required fields."));
       const id = url.searchParams.get("id");
+      if (id && !requireAdmin(req, res)) return;
       const payload = buildLetterPayload(form);
       if (id) await supabase(`letters?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", body: payload });
       else await supabase("letters", { method: "POST", body: payload });
@@ -484,6 +549,7 @@ async function handle(req, res) {
       return redirect(res, "/dashboard");
     }
     if (url.pathname === "/delete" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
       const id = url.searchParams.get("id");
       const rows = await supabase(`letters?select=registry_number&id=eq.${encodeURIComponent(id)}&limit=1`);
       await supabase(`letters?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -491,6 +557,7 @@ async function handle(req, res) {
       return redirect(res, "/delete");
     }
     if (url.pathname === "/complete-follow-up" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
       const id = url.searchParams.get("id");
       const rows = await supabase(`letters?select=registry_number&id=eq.${encodeURIComponent(id)}&limit=1`);
       await supabase(`letters?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", body: { follow_up_date: null } });
