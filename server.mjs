@@ -186,9 +186,9 @@ function authPage(kind, message = "") {
   const action = isRegister ? "/register" : isForgot ? "/forgot-password" : "/login";
   const button = isRegister ? "Register" : isForgot ? "Reset Password" : "Sign In";
   const subtitle = isRegister ? "Create a user account for the letter tracker" : isForgot ? "Reset the password for an existing user" : "Existing users sign in to access the registry";
-  const extra = isRegister || isForgot ? `<label>${isForgot ? "New " : ""}Password<input name="password" type="password" minlength="8" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p><label>Confirm ${isForgot ? "New " : ""}Password<input name="confirm_password" type="password" minlength="8" required></label>` : `<label>Password<input name="password" type="password" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p>`;
+  const extra = isRegister || isForgot ? `<label>${isForgot ? "New " : ""}Password<input name="purc_login_pass" type="password" autocomplete="new-password" minlength="8" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p><label>Confirm ${isForgot ? "New " : ""}Password<input name="purc_confirm_pass" type="password" autocomplete="new-password" minlength="8" required></label>` : `<label>Password<input name="purc_login_pass" type="password" autocomplete="new-password" data-strength="password_strength" required></label><label class="show"><input type="checkbox" onchange="togglePasswords(this)"> Show password</label><div id="password_strength" class="strength"></div><p class="rules">${passwordRulesText()}</p>`;
   const links = isRegister ? `<a href="/login">Existing User Sign In</a><a href="/forgot-password">Forgot Password?</a>` : isForgot ? `<a href="/login">Back to Sign In</a><a href="/register">Register New User</a>` : `<a href="/register">Register New User</a><a href="/forgot-password">Forgot Password?</a>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PURC Letter Tracker</title><style>${authStyles()}</style><script>${clientScript()}</script></head><body>${authPreviewShell()}<main class="login-card"><img src="/purc_logo.png" alt="PURC logo"><h1>PURC LETTER TRACKER</h1><h2>PUBLIC UTILITIES REGULATORY COMMISSION</h2><p>${subtitle}</p>${message ? `<div class="login-message">${escapeHtml(message)}</div>` : ""}<form method="post" action="${action}" autocomplete="off"><label>Username<input name="username" autocomplete="off" required></label>${extra}<button>${button}</button></form><div class="auth-links">${links}</div></main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PURC Letter Tracker</title><style>${authStyles()}</style><script>${clientScript()}</script></head><body>${authPreviewShell()}<main class="login-card"><img src="/purc_logo.png" alt="PURC logo"><h1>PURC LETTER TRACKER</h1><h2>PUBLIC UTILITIES REGULATORY COMMISSION</h2><p>${subtitle}</p>${message ? `<div class="login-message">${escapeHtml(message)}</div>` : ""}<form method="post" action="${action}" autocomplete="off" data-auth="true"><label>Username<input name="purc_login_user" autocomplete="new-password" autocapitalize="off" spellcheck="false" required></label>${extra}<button>${button}</button></form><div class="auth-links">${links}</div></main></body></html>`;
 }
 
 function requireLogin(req, res) {
@@ -412,19 +412,23 @@ async function handle(req, res) {
     if (url.pathname === "/login" && req.method === "POST") {
       const form = await readBody(req);
       const users = loadUsers();
-      if (users.get(trim(form.username)) === form.password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(trim(form.username))}; Path=/; SameSite=Lax`]);
+      const username = trim(form.purc_login_user || form.username);
+      const password = form.purc_login_pass || form.password || "";
+      if (users.get(username) === password) return redirect(res, "/", [`purc_session=${encodeURIComponent(SESSION)}; Path=/; HttpOnly; SameSite=Lax`, `purc_user=${encodeURIComponent(username)}; Path=/; SameSite=Lax`]);
       return send(res, authPage("login", "Incorrect username or password."));
     }
     if (url.pathname === "/register" && req.method === "GET") return send(res, authPage("register"));
     if (url.pathname === "/register" && req.method === "POST") {
       const form = await readBody(req);
       const users = loadUsers();
-      const username = trim(form.username);
+      const username = trim(form.purc_login_user || form.username);
+      const password = form.purc_login_pass || form.password || "";
+      const confirmPassword = form.purc_confirm_pass || form.confirm_password || "";
       if (!username) return send(res, authPage("register", "Please enter a username."));
       if (users.has(username)) return send(res, authPage("register", "This username already exists."));
-      if (form.password !== form.confirm_password) return send(res, authPage("register", "The two passwords do not match."));
-      if (!passwordOk(form.password)) return send(res, authPage("register", passwordRulesText()));
-      users.set(username, form.password);
+      if (password !== confirmPassword) return send(res, authPage("register", "The two passwords do not match."));
+      if (!passwordOk(password)) return send(res, authPage("register", passwordRulesText()));
+      users.set(username, password);
       saveUsers(users);
       return send(res, authPage("login", "Registration successful. Please sign in with your new account."));
     }
@@ -432,11 +436,13 @@ async function handle(req, res) {
     if (url.pathname === "/forgot-password" && req.method === "POST") {
       const form = await readBody(req);
       const users = loadUsers();
-      const username = trim(form.username);
+      const username = trim(form.purc_login_user || form.username);
+      const password = form.purc_login_pass || form.password || "";
+      const confirmPassword = form.purc_confirm_pass || form.confirm_password || "";
       if (!users.has(username)) return send(res, authPage("forgot", "Username not found."));
-      if (form.password !== form.confirm_password) return send(res, authPage("forgot", "The two passwords do not match."));
-      if (!passwordOk(form.password)) return send(res, authPage("forgot", passwordRulesText()));
-      users.set(username, form.password);
+      if (password !== confirmPassword) return send(res, authPage("forgot", "The two passwords do not match."));
+      if (!passwordOk(password)) return send(res, authPage("forgot", passwordRulesText()));
+      users.set(username, password);
       saveUsers(users);
       return send(res, authPage("login", "Password reset successful. Please sign in with the new password."));
     }
@@ -495,7 +501,7 @@ function authStyles() {
 }
 
 function clientScript() {
-  return `const providersBySector={Electricity:['ECG','NEDCo','GRIDCo','VRA','Bui Power Authority','Independent Power Producer'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],Other:['Other'],Unassigned:['Unassigned']};function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const vals=providersBySector[s.value]||Object.values(providersBySector).flat();p.innerHTML='';if(all)p.innerHTML='<option value="">All Providers</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>filterProviders(s,p));filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='Unassigned';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k)}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}))})`;
+  return `const providersBySector={Electricity:['ECG','NEDCo','GRIDCo','VRA','Bui Power Authority','Independent Power Producer'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],Other:['Other'],Unassigned:['Unassigned']};function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const vals=providersBySector[s.value]||Object.values(providersBySector).flat();p.innerHTML='';if(all)p.innerHTML='<option value="">All Providers</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>filterProviders(s,p));filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='Unassigned';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k)}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}function clearAuthFields(){document.querySelectorAll('form[data-auth] input').forEach(i=>{if(i.type==='checkbox'){i.checked=false;return}i.value='';i.setAttribute('autocomplete','new-password')});document.querySelectorAll('.strength').forEach(b=>{b.className='strength';b.textContent=''})}function scheduleAuthClear(){if(!document.querySelector('form[data-auth]'))return;[0,150,600,1400].forEach(ms=>setTimeout(clearAuthFields,ms))}window.addEventListener('pageshow',scheduleAuthClear);document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}));scheduleAuthClear()})`;
 }
 
 http.createServer(handle).listen(PORT, HOST, () => {
