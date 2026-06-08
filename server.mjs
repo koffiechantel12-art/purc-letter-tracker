@@ -240,7 +240,7 @@ function layout(title, body, req) {
   const active = (name) => title === name ? " class='active'" : "";
   const adminLinks = admin ? `<a${active("Delete Records")} href="/delete">Delete Records</a><a${active("User Management")} href="/users">Users</a>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}</style>
+  <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}.month-clean:not(.has-value)::-webkit-datetime-edit{color:transparent}</style>
   <script>${clientScript()}</script></head><body>
   <div class="top-strip"><div>Accra, Ghana &nbsp; 0302218300</div><em>Protecting the interest of consumers &amp; utility service providers</em><div></div></div>
   <header class="app-head"><div class="brand"><img src="/purc_logo.png" alt="PURC logo"><div><strong>PURC LETTER TRACKER</strong><span>PUBLIC UTILITIES REGULATORY COMMISSION <small>| GHANA</small></span></div></div><div class="head-actions"><span class="chip">${longDate()}</span><span class="chip">${escapeHtml(user || "STAFF")} ${admin ? "(ADMIN)" : ""}</span></div></header>
@@ -431,7 +431,7 @@ async function historyPage(req, params) {
     archives += `</section>`;
   }
   if (!archives) archives = `<section class="panel">No history found.</section>`;
-  return layout("History", `${hero("Letter History", "Browse archived records of received and dispatched correspondence.")}<form class="panel filters history" method="get" action="/history"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search older records..."><select id="history_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Utility Sectors")}</select><select name="provider" data-provider-filter="history_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Providers")}</select><input type="month" name="month" value="${escapeHtml(month||"")}"><button>Search</button><a class="btn" href="/history">Reset</a></form>${archives}`, req);
+  return layout("History", `${hero("Letter History", "Browse archived records of received and dispatched correspondence.")}<form class="panel filters history" method="get" action="/history"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search older records..."><select id="history_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Utility Sectors")}</select><select name="provider" data-provider-filter="history_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Providers")}</select><input type="month" class="month-clean${month ? " has-value" : ""}" name="month" value="${escapeHtml(month||"")}" onchange="this.classList.toggle('has-value', !!this.value)"><button>Search</button><a class="btn" href="/history">Reset</a></form>${archives}`, req);
 }
 
 async function deletePage(req) {
