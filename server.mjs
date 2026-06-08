@@ -431,7 +431,7 @@ async function historyPage(req, params) {
     archives += `</section>`;
   }
   if (!archives) archives = `<section class="panel">No history found.</section>`;
-  return layout("History", `${hero("Letter History", "Browse archived records of received and dispatched correspondence.")}<form class="panel filters history" method="get" action="/history"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search older records..."><select id="history_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Utility Sectors")}</select><select name="provider" data-provider-filter="history_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Providers")}</select><input type="text" name="month" value="${escapeHtml(month||"")}" placeholder="Filter by month"><button>Search</button><a class="btn" href="/history">Reset</a></form>${archives}`, req);
+  return layout("History", `${hero("Letter History", "Browse archived records of received and dispatched correspondence.")}<form class="panel filters history" method="get" action="/history"><input name="q" value="${escapeHtml(params.get("q")||"")}" placeholder="Search older records..."><select id="history_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Utility Sectors")}</select><select name="provider" data-provider-filter="history_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Providers")}</select><input type="month" name="month" value="${escapeHtml(month||"")}"><button>Search</button><a class="btn" href="/history">Reset</a></form>${archives}`, req);
 }
 
 async function deletePage(req) {
