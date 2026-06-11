@@ -373,15 +373,26 @@ function hero(title, subtitle, right = "") {
 
 function filterRows(rows, params) {
   let out = rows;
+  const provider = params.get("provider");
   if (params.get("direction")) out = out.filter(r => r.direction === params.get("direction"));
-  if (params.get("utility")) {
+  if (provider) out = out.filter(r => r.utility_provider === provider);
+  if (params.get("utility") && !provider) {
     const utility = params.get("utility");
-    out = out.filter(r => utility === "Electricity Generation" ? String(r.utility_service || "").startsWith("Electricity Generation - ") : r.utility_service === utility);
+    out = out.filter(r => categoryMatches(r, utility));
   }
-  if (params.get("provider")) out = out.filter(r => r.utility_provider === params.get("provider"));
   const q = trim(params.get("q") || "").toLowerCase();
   if (q) out = out.filter(r => [r.registry_number, r.sender_receiver, r.letter_number, r.subject, r.remarks, r.action_officer, r.department, r.utility_service, r.utility_provider].some(v => String(v || "").toLowerCase().includes(q)));
   return out;
+}
+
+function categoryMatches(row, utility) {
+  const saved = String(row.utility_service || "");
+  const stakeholder = String(row.utility_provider || "");
+  if (saved === utility) return true;
+  if (utility === "Electricity Generation") {
+    return saved.startsWith("Electricity Generation - ") || providersBySector["Electricity Generation"].includes(stakeholder);
+  }
+  return (providersBySector[utility] || []).includes(stakeholder);
 }
 
 async function getLetters(limit = 1000) {
