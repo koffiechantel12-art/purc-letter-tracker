@@ -475,7 +475,7 @@ async function stakeholderDetails(req, params) {
   const rows = filterRows(await getLetters(), params);
   const title = provider || utility || "Stakeholder";
   const subtitle = provider ? `Records for stakeholder/institution: ${provider}` : `Records for stakeholder category: ${utility}`;
-  return layout("Stakeholder Counts", `${hero(title, subtitle, `<a class="btn primary" href="/utility-counts">Back to Counts</a>`)}${recordCard(rows, "/stakeholder-details", params, isAdmin(req))}`, req);
+  return layout("Stakeholder Counts", `${hero(title, subtitle, `<a class="btn primary" style="align-self:center;min-height:38px;padding:0 16px" href="/utility-counts">Back to Counts</a>`)}${recordCard(rows, "/stakeholder-details", params, isAdmin(req))}`, req);
 }
 
 async function auditPage(req, params) {
