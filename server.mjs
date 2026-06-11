@@ -240,11 +240,11 @@ function layout(title, body, req) {
   const active = (name) => title === name ? " class='active'" : "";
   const adminLinks = admin ? `<a${active("Delete Records")} href="/delete">Delete Records</a><a${active("User Management")} href="/users">Users</a>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}.month-clean:not(.has-value)::-webkit-datetime-edit{color:transparent}</style>
+  <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}.month-clean:not(.has-value)::-webkit-datetime-edit{color:transparent}.generation-type{display:none}.generation-type.active{display:block}.count{text-decoration:none;color:var(--ink)}</style>
   <script>${clientScript()}</script></head><body>
   <div class="top-strip"><div>Accra, Ghana &nbsp; 0302218300</div><em>Protecting the interest of consumers &amp; utility service providers</em><div></div></div>
   <header class="app-head"><div class="brand"><img src="/purc_logo.png" alt="PURC logo"><div><strong>PURC LETTER TRACKER</strong><span>PUBLIC UTILITIES REGULATORY COMMISSION <small>| GHANA</small></span></div></div><div class="head-actions"><span class="chip">${longDate()}</span><span class="chip">${escapeHtml(user || "STAFF")} ${admin ? "(ADMIN)" : ""}</span></div></header>
-  <nav class="nav"><a${active("New Letter")} href="/">New Letter</a><a${active("Dashboard")} href="/dashboard">Dashboard</a>${adminLinks}<a${active("Audit Log")} href="/audit">Audit Log</a><span></span><a class="signout" href="/logout">Sign Out</a></nav>
+  <nav class="nav"><a${active("Add New Record")} href="/">Add New Record</a><a${active("Dashboard")} href="/dashboard">Dashboard</a>${adminLinks}<a${active("Audit Log")} href="/audit">Audit Log</a><span></span><a class="signout" href="/logout">Sign Out</a></nav>
   <main>${body}</main></body></html>`;
 }
 
@@ -252,7 +252,7 @@ function authPreviewShell() {
   return `<div class="preview" aria-hidden="true">
     <div class="preview-top"><span>Accra, Ghana&nbsp;&nbsp;0302218300</span><em>Protecting the interest of consumers &amp; utility service providers</em></div>
     <div class="preview-head"><div class="preview-brand"><img src="/purc_logo.png" alt=""><div><b>PURC LETTER TRACKER</b><small>PUBLIC UTILITIES REGULATORY COMMISSION</small></div></div></div>
-    <div class="preview-nav"><span>New Letter</span><span>Dashboard</span><span>Delete Records</span></div>
+    <div class="preview-nav"><span>Add New Record</span><span>Dashboard</span><span>Delete Records</span></div>
     <div class="preview-main"><section><h1>Dashboard</h1><p>Welcome back. Here's what's happening with your correspondence.</p></section></div>
   </div>`;
 }
@@ -286,13 +286,14 @@ function optionList(values, selected, first) {
   return `<option value="">${first}</option>` + values.map(v => `<option value="${escapeHtml(v)}"${selected === v ? " selected" : ""}>${escapeHtml(v)}</option>`).join("");
 }
 
-const sectors = ["Electricity Distribution", "Electricity Transmission", "Electricity Generation - Hydro", "Electricity Generation - Thermal", "Electricity Generation - Solar", "Water", "Natural Gas", "Government Agency", "Consumer / Public", "Internal PURC", "Other"];
+const sectors = ["Electricity Distribution", "Electricity Transmission", "Electricity Generation", "Water", "Natural Gas", "Government Agency", "Consumer / Public", "Internal PURC", "Other"];
 const providersBySector = {
   "Electricity Distribution": ["ECG", "NEDCo"],
   "Electricity Transmission": ["GRIDCo"],
   "Electricity Generation - Hydro": ["VRA", "Bui Power Authority", "Other"],
   "Electricity Generation - Thermal": ["Sunon Asogli Power", "Cenpower Generation", "Karpowership Ghana", "AKSA Energy Ghana", "CENIT Energy", "Genser Energy", "Other"],
   "Electricity Generation - Solar": ["BXC Solar", "Meinergy Ghana", "Other"],
+  "Electricity Generation - Other": ["Other"],
   Water: ["Ghana Water"],
   "Natural Gas": ["Ghana Gas"],
   "Government Agency": ["Ministry of Energy", "Energy Commission", "Ministry of Finance", "Parliament of Ghana", "Other Government Agency"],
@@ -303,7 +304,8 @@ const providersBySector = {
 const allProviders = [...new Set(Object.values(providersBySector).flat())];
 
 function buildLetterPayload(form) {
-  const utilityService = form.utility_service === "Other" && trim(form.utility_service_other) ? trim(form.utility_service_other) : (form.utility_service || "Other");
+  let utilityService = form.utility_service === "Other" && trim(form.utility_service_other) ? trim(form.utility_service_other) : (form.utility_service || "Other");
+  if (utilityService === "Electricity Generation") utilityService = `Electricity Generation - ${form.generation_type || "Other"}`;
   const utilityProvider = form.utility_provider === "Other" && trim(form.utility_provider_other) ? trim(form.utility_provider_other) : (form.utility_provider || "Other");
   return {
     direction: form.direction || "Received",
@@ -334,9 +336,12 @@ async function audit(action, req, letterId, registryNumber, details) {
 
 function letterForm(req, values = {}, error = "", id = "") {
   const v = (name, fallback = "") => escapeHtml(values[name] ?? fallback);
-  const sector = values.utility_service || "";
+  const savedSector = values.utility_service || "";
+  const isGeneration = savedSector.startsWith("Electricity Generation - ");
+  const sector = isGeneration ? "Electricity Generation" : savedSector;
+  const generationType = isGeneration ? savedSector.replace("Electricity Generation - ", "") : "";
   const provider = values.utility_provider || "";
-  return layout(id ? "Edit Letter" : "New Letter", `${hero(id ? "Edit Letter" : "Register New Letter", "Executive Secretary correspondence registry for received and dispatched letters.")}${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+  return layout(id ? "Edit Letter" : "Add New Record", `${hero(id ? "Edit Record" : "Add New Record", "Executive Secretary correspondence registry for received and dispatched letters.")}${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
   <form class="panel grid" method="post" action="/save${id ? `?id=${encodeURIComponent(id)}` : ""}">
   <h2 class="form-title">Letter Details</h2>
   <label>Type<select name="direction"><option${v("direction","Received")==="Received"?" selected":""}>Received</option><option${v("direction")==="Sent"?" selected":""}>Sent</option></select></label>
@@ -347,6 +352,7 @@ function letterForm(req, values = {}, error = "", id = "") {
   <label>No. of Letter<input name="letter_number" value="${v("letter_number")}"></label>
   <h2 class="form-title">Stakeholder Classification</h2>
   <label>Stakeholder Category<select id="utility_service_select" name="utility_service" onchange="checkOther(this,'utility_service')" required>${optionList(sectors, sector, "Select Stakeholder Category")}</select><span id="utility_service_other" class="other-inline"><input name="utility_service_other" id="utility_service_other_input" placeholder="Type stakeholder category"><a onclick="useList('utility_service')">Use list instead</a></span></label>
+  <label id="generation_type_field" class="generation-type">Generation Type<select id="generation_type_select" name="generation_type"><option value="">Select Generation Type</option><option${generationType==="Thermal"?" selected":""}>Thermal</option><option${generationType==="Hydro"?" selected":""}>Hydro</option><option${generationType==="Solar"?" selected":""}>Solar</option><option${generationType==="Other"?" selected":""}>Other</option></select></label>
   <label>Stakeholder / Institution<select id="utility_provider_select" name="utility_provider" onchange="checkOther(this,'utility_provider')" required>${optionList(allProviders, provider, "Select Stakeholder")}</select><span id="utility_provider_other" class="other-inline"><input name="utility_provider_other" id="utility_provider_other_input" placeholder="Type stakeholder or institution"><a onclick="useList('utility_provider')">Use list instead</a></span></label>
   <label class="wide">Subject<input name="subject" value="${v("subject")}" required></label>
   <h2 class="form-title">Assignment and Tracking</h2>
@@ -367,7 +373,10 @@ function hero(title, subtitle, right = "") {
 function filterRows(rows, params) {
   let out = rows;
   if (params.get("direction")) out = out.filter(r => r.direction === params.get("direction"));
-  if (params.get("utility")) out = out.filter(r => r.utility_service === params.get("utility"));
+  if (params.get("utility")) {
+    const utility = params.get("utility");
+    out = out.filter(r => utility === "Electricity Generation" ? String(r.utility_service || "").startsWith("Electricity Generation - ") : r.utility_service === utility);
+  }
   if (params.get("provider")) out = out.filter(r => r.utility_provider === params.get("provider"));
   const q = trim(params.get("q") || "").toLowerCase();
   if (q) out = out.filter(r => [r.registry_number, r.sender_receiver, r.letter_number, r.subject, r.remarks, r.action_officer, r.department, r.utility_service, r.utility_provider].some(v => String(v || "").toLowerCase().includes(q)));
@@ -413,7 +422,7 @@ function filterForm(action, params, label = "Search") {
 }
 
 function quickLinks(admin = false) {
-  return `<aside class="quick"><h2>Quick Links</h2><a href="/">Register New Letter</a><a href="/history">View Letter History</a><a href="/export">Export Registry Report</a><a href="/utility-counts">View Stakeholder Counts</a>${admin ? `<a href="/users">Manage Users</a>` : ""}</aside>`;
+  return `<aside class="quick"><h2>Quick Links</h2><a href="/">Add New Record</a><a href="/history">View Letter History</a><a href="/export">Export Registry Report</a><a href="/utility-counts">View Stakeholder Counts</a>${admin ? `<a href="/users">Manage Users</a>` : ""}</aside>`;
 }
 
 async function historyPage(req, params) {
@@ -449,8 +458,17 @@ async function deletePage(req) {
 async function utilityCounts(req) {
   const rows = await getLetters();
   const counts = (key) => rows.reduce((m, r) => (m.set(r[key] || "Other", (m.get(r[key] || "Other") || 0) + 1), m), new Map());
-  const render = (map) => [...map.entries()].map(([k,v]) => `<div class="count"><span>${escapeHtml(k)}</span><strong>${v}</strong></div>`).join("");
-  return layout("Stakeholder Counts", `${hero("Stakeholder Counts", "Number of letters or documents recorded for each stakeholder category and institution.")}<section class="workspace"><div class="panel"><h2>By Stakeholder / Institution</h2>${render(counts("utility_provider"))}</div><div class="panel"><h2>By Stakeholder Category</h2>${render(counts("utility_service"))}</div></section>`, req);
+  const render = (map, key) => [...map.entries()].map(([k,v]) => `<a class="count" href="/stakeholder-details?${key}=${encodeURIComponent(k)}"><span>${escapeHtml(k)}</span><strong>${v}</strong></a>`).join("");
+  return layout("Stakeholder Counts", `${hero("Stakeholder Counts", "Number of letters or documents recorded for each stakeholder category and institution.")}<section class="workspace"><div class="panel"><h2>By Stakeholder / Institution</h2>${render(counts("utility_provider"), "provider")}</div><div class="panel"><h2>By Stakeholder Category</h2>${render(counts("utility_service"), "utility")}</div></section>`, req);
+}
+
+async function stakeholderDetails(req, params) {
+  const provider = params.get("provider");
+  const utility = params.get("utility");
+  const rows = filterRows(await getLetters(), params);
+  const title = provider || utility || "Stakeholder";
+  const subtitle = provider ? `Records for stakeholder/institution: ${provider}` : `Records for stakeholder category: ${utility}`;
+  return layout("Stakeholder Counts", `${hero(title, subtitle, `<a class="btn primary" href="/utility-counts">Back to Counts</a>`)}${recordCard(rows, "/stakeholder-details", params, isAdmin(req))}`, req);
 }
 
 async function auditPage(req, params) {
@@ -597,6 +615,7 @@ async function handle(req, res) {
       return redirect(res, "/users");
     }
     if (url.pathname === "/utility-counts") return send(res, await utilityCounts(req));
+    if (url.pathname === "/stakeholder-details") return send(res, await stakeholderDetails(req, url.searchParams));
     if (url.pathname === "/export") return send(res, await exportPage(req, url.searchParams));
     if (url.pathname === "/edit") {
       if (!requireAdmin(req, res)) return;
@@ -648,7 +667,7 @@ function authStyles() {
 }
 
 function clientScript() {
-  return `const providersBySector={'Electricity Distribution':['ECG','NEDCo'],'Electricity Transmission':['GRIDCo'],'Electricity Generation - Hydro':['VRA','Bui Power Authority','Other'],'Electricity Generation - Thermal':['Sunon Asogli Power','Cenpower Generation','Karpowership Ghana','AKSA Energy Ghana','CENIT Energy','Genser Energy','Other'],'Electricity Generation - Solar':['BXC Solar','Meinergy Ghana','Other'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],'Government Agency':['Ministry of Energy','Energy Commission','Ministry of Finance','Parliament of Ghana','Other Government Agency'],'Consumer / Public':['Individual Consumer','Business Consumer','Consumer Group','Community / Public Petition'],'Internal PURC':['Executive Secretary Office','Commissioners','Legal Department','Consumer Services','Tariff Department','Regional Office','Administration'],Other:['Other']};function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const vals=providersBySector[s.value]||Object.values(providersBySector).flat();p.innerHTML='';p.innerHTML='<option value="">'+(all?'All Stakeholders':'Select Stakeholder')+'</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>filterProviders(s,p));filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k)}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}function clearAuthFields(){document.querySelectorAll('form[data-auth] input').forEach(i=>{if(i.type==='checkbox'){i.checked=false;return}i.value='';i.setAttribute('autocomplete','new-password')});document.querySelectorAll('.strength').forEach(b=>{b.className='strength';b.textContent=''})}function scheduleAuthClear(){if(!document.querySelector('form[data-auth]'))return;[0,150,600,1400].forEach(ms=>setTimeout(clearAuthFields,ms))}window.addEventListener('pageshow',scheduleAuthClear);document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}));scheduleAuthClear()})`;
+  return `const providersBySector={'Electricity Distribution':['ECG','NEDCo'],'Electricity Transmission':['GRIDCo'],'Electricity Generation - Hydro':['VRA','Bui Power Authority','Other'],'Electricity Generation - Thermal':['Sunon Asogli Power','Cenpower Generation','Karpowership Ghana','AKSA Energy Ghana','CENIT Energy','Genser Energy','Other'],'Electricity Generation - Solar':['BXC Solar','Meinergy Ghana','Other'],'Electricity Generation - Other':['Other'],Water:['Ghana Water'],'Natural Gas':['Ghana Gas'],'Government Agency':['Ministry of Energy','Energy Commission','Ministry of Finance','Parliament of Ghana','Other Government Agency'],'Consumer / Public':['Individual Consumer','Business Consumer','Consumer Group','Community / Public Petition'],'Internal PURC':['Executive Secretary Office','Commissioners','Legal Department','Consumer Services','Tariff Department','Regional Office','Administration'],Other:['Other']};function providerKey(s){if(!s)return'';if(s.value==='Electricity Generation'){const g=document.getElementById('generation_type_select');return 'Electricity Generation - '+((g&&g.value)||'Other')}return s.value}function filterProviders(s,p){if(!s||!p)return;const old=p.value,all=p.dataset.allowAll==='true';const key=providerKey(s);const vals=providersBySector[key]||Object.values(providersBySector).flat();p.innerHTML='';p.innerHTML='<option value="">'+(all?'All Stakeholders':'Select Stakeholder')+'</option>';vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;p.appendChild(o)});if([...p.options].some(o=>o.value===old))p.value=old}function toggleGenerationType(){const s=document.getElementById('utility_service_select'),f=document.getElementById('generation_type_field'),g=document.getElementById('generation_type_select'),p=document.getElementById('utility_provider_select');if(!s||!f)return;const on=s.value==='Electricity Generation';f.classList.toggle('active',on);if(on&&g&&!g.value)g.value='Thermal';if(!on&&g)g.value='';filterProviders(s,p)}function bindProviderFilter(s,p){if(!s||!p)return;s.addEventListener('change',()=>{toggleGenerationType();filterProviders(s,p)});const g=document.getElementById('generation_type_select');if(g)g.addEventListener('change',()=>filterProviders(s,p));toggleGenerationType();filterProviders(s,p)}function useOther(k){document.getElementById(k+'_select').style.display='none';document.getElementById(k+'_other').style.display='block';document.getElementById(k+'_other_input').focus()}function useList(k){document.getElementById(k+'_other').style.display='none';document.getElementById(k+'_other_input').value='';const s=document.getElementById(k+'_select');s.value='';s.style.display='block'}function checkOther(sel,k){if(sel.value==='Other')useOther(k);toggleGenerationType()}function passwordStrong(v){return v.length>=8&&/[A-Z]/.test(v)&&/[a-z]/.test(v)&&/[0-9]/.test(v)&&/[^A-Za-z0-9]/.test(v)}function togglePasswords(box){document.querySelectorAll('input[type=password],input[data-was-password]').forEach(i=>{if(box.checked){i.dataset.wasPassword=1;i.type='text'}else if(i.dataset.wasPassword){i.type='password'}})}function clearAuthFields(){document.querySelectorAll('form[data-auth] input').forEach(i=>{if(i.type==='checkbox'){i.checked=false;return}i.value='';i.setAttribute('autocomplete','new-password')});document.querySelectorAll('.strength').forEach(b=>{b.className='strength';b.textContent=''})}function scheduleAuthClear(){if(!document.querySelector('form[data-auth]'))return;[0,150,600,1400].forEach(ms=>setTimeout(clearAuthFields,ms))}window.addEventListener('pageshow',scheduleAuthClear);document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-provider-filter]').forEach(p=>bindProviderFilter(document.getElementById(p.dataset.providerFilter),p));bindProviderFilter(document.getElementById('utility_service_select'),document.getElementById('utility_provider_select'));document.querySelectorAll('[data-strength]').forEach(i=>i.addEventListener('input',()=>{const b=document.getElementById(i.dataset.strength);if(!b)return;if(!i.value){b.className='strength';b.textContent=''}else if(passwordStrong(i.value)){b.className='strength strong';b.textContent='Strong password'}else{b.className='strength weak';b.textContent='Weak password'}}));scheduleAuthClear()})`;
 }
 
 http.createServer(handle).listen(PORT, HOST, () => {
