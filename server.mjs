@@ -238,7 +238,7 @@ function layout(title, body, req) {
   const user = currentUser(req);
   const admin = isAdmin(req);
   const active = (name) => title === name ? " class='active'" : "";
-  const adminLinks = admin ? `<a${active("Delete Records")} href="/delete">Delete Records</a><a${active("User Management")} href="/users">Users</a>` : "";
+  const adminLinks = admin ? `<a${active("Deleted Records")} href="/delete">Deleted Records</a><a${active("User Management")} href="/users">Users</a>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title><link rel="icon" href="/purc_logo.png"><style>${styles()}.month-clean:not(.has-value)::-webkit-datetime-edit{color:transparent}.generation-type{display:none}.generation-type.active{display:block}.count{text-decoration:none;color:var(--ink)}</style>
   <script>${clientScript()}</script></head><body>
@@ -405,7 +405,7 @@ function typeBadge(direction) {
 
 function tableRows(rows, includeAction = true) {
   if (!rows.length) return `<tr><td colspan="${includeAction ? 11 : 10}">No records found.</td></tr>`;
-  return rows.map(r => `<tr><td>${typeBadge(r.direction)}</td><td>${escapeHtml(r.date_dispatched || "")}</td><td>${escapeHtml(timestamp(r.created_at || ""))}</td><td><strong>${escapeHtml(r.registry_number || "")}</strong></td><td>${escapeHtml(r.sender_receiver || "")}</td><td>${escapeHtml(r.letter_number || "")}</td><td>${escapeHtml(r.utility_service || "")}</td><td>${escapeHtml(r.utility_provider || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${escapeHtml(r.action_officer || "")}</td>${includeAction ? `<td><a href="/edit?id=${r.id}">Edit</a></td>` : ""}</tr>`).join("");
+  return rows.map(r => `<tr><td>${typeBadge(r.direction)}</td><td>${escapeHtml(r.date_dispatched || "")}</td><td>${escapeHtml(timestamp(r.created_at || ""))}</td><td><strong>${escapeHtml(r.registry_number || "")}</strong></td><td>${escapeHtml(r.sender_receiver || "")}</td><td>${escapeHtml(r.letter_number || "")}</td><td>${escapeHtml(r.utility_service || "")}</td><td>${escapeHtml(r.utility_provider || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${escapeHtml(r.action_officer || "")}</td>${includeAction ? `<td><a href="/edit?id=${r.id}">Edit</a><form method="post" action="/delete?id=${r.id}&next=dashboard" onsubmit="return confirm('Delete this record permanently?')" style="margin-top:8px"><button class="danger smallbtn">Delete</button></form></td>` : ""}</tr>`).join("");
 }
 
 async function dashboard(req, params) {
@@ -458,8 +458,8 @@ async function historyPage(req, params) {
 }
 
 async function deletePage(req) {
-  const rows = await getLetters();
-  return layout("Delete Records", `${hero("Delete Records", "Select records that should be permanently removed from the letter registry.")}<section class="panel"><table><thead><tr><th>Date</th><th>Reference No.</th><th>Type</th><th>From / To</th><th>Stakeholder</th><th>Subject</th><th>Action</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.date_dispatched||"")}</td><td><strong>${escapeHtml(r.registry_number||"")}</strong></td><td>${escapeHtml(r.direction||"")}</td><td>${escapeHtml(r.sender_receiver||"")}</td><td>${escapeHtml(r.utility_provider||"")}</td><td>${escapeHtml(r.subject||"")}</td><td><form method="post" action="/delete?id=${r.id}" onsubmit="return confirm('Delete this record permanently?')"><button class="danger">Delete</button></form></td></tr>`).join("")}</tbody></table></section>`, req);
+  const rows = await supabase("audit_logs?select=*&action=eq.Deleted%20record&order=created_at.desc&limit=500");
+  return layout("Deleted Records", `${hero("Deleted Records", "Review records that have already been deleted from the letter registry.")}<section class="panel"><h2>Deleted Activity</h2><p><strong>${rows.length}</strong> deleted record(s) shown.</p><table><thead><tr><th>Deleted At</th><th>Deleted By</th><th>Reference No.</th><th>Details</th></tr></thead><tbody>${rows.length ? rows.map(r=>`<tr><td>${escapeHtml(timestamp(r.created_at||""))}</td><td><strong>${escapeHtml(r.username||"STAFF")}</strong></td><td>${escapeHtml(r.registry_number||"")}</td><td>${escapeHtml(r.details||"Deleted letter record")}</td></tr>`).join("") : `<tr><td colspan="4">No deleted records found.</td></tr>`}</tbody></table></section>`, req);
 }
 
 async function utilityCounts(req) {
@@ -646,10 +646,11 @@ async function handle(req, res) {
     if (url.pathname === "/delete" && req.method === "POST") {
       if (!requireAdmin(req, res)) return;
       const id = url.searchParams.get("id");
-      const rows = await supabase(`letters?select=registry_number&id=eq.${encodeURIComponent(id)}&limit=1`);
+      const rows = await supabase(`letters?select=registry_number,subject,utility_provider&id=eq.${encodeURIComponent(id)}&limit=1`);
       await supabase(`letters?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
-      await audit("Deleted record", req, id, rows[0]?.registry_number || "", "Deleted letter record");
-      return redirect(res, "/delete");
+      const record = rows[0] || {};
+      await audit("Deleted record", req, id, record.registry_number || "", `Deleted letter: ${record.subject || "No subject"}${record.utility_provider ? ` (${record.utility_provider})` : ""}`);
+      return redirect(res, url.searchParams.get("next") === "dashboard" ? "/dashboard" : "/delete");
     }
     if (url.pathname === "/complete-follow-up" && req.method === "POST") {
       if (!requireAdmin(req, res)) return;
