@@ -388,18 +388,13 @@ async function getLetters(limit = 1000) {
   return await supabase(`letters?select=*&order=date_dispatched.desc,created_at.desc&limit=${limit}`);
 }
 
-function statusBadge(status) {
-  const cls = status === "Closed" ? " closed" : status === "In Progress" ? " progress" : "";
-  return `<span class="status${cls}">${escapeHtml(status || "Open")}</span>`;
-}
-
 function typeBadge(direction) {
   return `<span class="badge ${direction === "Sent" ? "sent" : ""}">${escapeHtml(direction)}</span>`;
 }
 
 function tableRows(rows, includeAction = true) {
-  if (!rows.length) return `<tr><td colspan="${includeAction ? 12 : 11}">No records found.</td></tr>`;
-  return rows.map(r => `<tr><td>${typeBadge(r.direction)}</td><td>${escapeHtml(r.date_dispatched || "")}</td><td>${escapeHtml(timestamp(r.created_at || ""))}</td><td><strong>${escapeHtml(r.registry_number || "")}</strong></td><td>${escapeHtml(r.sender_receiver || "")}</td><td>${escapeHtml(r.letter_number || "")}</td><td>${escapeHtml(r.utility_service || "")}</td><td>${escapeHtml(r.utility_provider || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${escapeHtml(r.action_officer || "")}</td><td>${statusBadge(r.status)}</td>${includeAction ? `<td><a href="/edit?id=${r.id}">Edit</a></td>` : ""}</tr>`).join("");
+  if (!rows.length) return `<tr><td colspan="${includeAction ? 11 : 10}">No records found.</td></tr>`;
+  return rows.map(r => `<tr><td>${typeBadge(r.direction)}</td><td>${escapeHtml(r.date_dispatched || "")}</td><td>${escapeHtml(timestamp(r.created_at || ""))}</td><td><strong>${escapeHtml(r.registry_number || "")}</strong></td><td>${escapeHtml(r.sender_receiver || "")}</td><td>${escapeHtml(r.letter_number || "")}</td><td>${escapeHtml(r.utility_service || "")}</td><td>${escapeHtml(r.utility_provider || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${escapeHtml(r.action_officer || "")}</td>${includeAction ? `<td><a href="/edit?id=${r.id}">Edit</a></td>` : ""}</tr>`).join("");
 }
 
 async function dashboard(req, params) {
@@ -415,7 +410,7 @@ async function dashboard(req, params) {
 }
 
 function recordCard(rows, action, params, admin = false) {
-  return `<section class="record-card"><header><div><h2>Recent Letters</h2><p>Search correspondence records from Supabase.</p></div></header>${filterForm(action, params)}<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Category</th><th>Stakeholder</th><th>Subject</th><th>Officer</th><th>Status</th>${admin ? "<th>Action</th>" : ""}</tr></thead><tbody>${tableRows(rows, admin)}</tbody></table></div><p class="empty">Showing ${rows.length} record(s)</p></section>`;
+  return `<section class="record-card"><header><div><h2>Recent Letters</h2><p>Search correspondence records from Supabase.</p></div></header>${filterForm(action, params)}<div class="table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Category</th><th>Stakeholder</th><th>Subject</th><th>Officer</th>${admin ? "<th>Action</th>" : ""}</tr></thead><tbody>${tableRows(rows, admin)}</tbody></table></div><p class="empty">Showing ${rows.length} record(s)</p></section>`;
 }
 
 function filterForm(action, params, label = "Search") {
@@ -443,7 +438,7 @@ async function historyPage(req, params) {
     const total = [...months.values()].reduce((n, a) => n + a.length, 0);
     archives += `<section class="archive"><h2>${escapeHtml(provider)}<span>${total} letter(s)</span></h2>`;
     for (const [m, records] of months) {
-      archives += `<div class="month"><h3>${monthLabel(m)} · ${records.length} record(s)</h3><table><thead><tr><th>Date</th><th>Registered At</th><th>Reference No.</th><th>Category</th><th>Type</th><th>From / To</th><th>Subject</th><th>Status</th><th>Remarks</th></tr></thead><tbody>${records.map(r=>`<tr><td>${escapeHtml(r.date_dispatched||"")}</td><td>${escapeHtml(timestamp(r.created_at||""))}</td><td><strong>${escapeHtml(r.registry_number||"")}</strong></td><td>${escapeHtml(r.utility_service||"")}</td><td>${escapeHtml(r.direction||"")}</td><td>${escapeHtml(r.sender_receiver||"")}</td><td>${escapeHtml(r.subject||"")}</td><td>${statusBadge(r.status)}</td><td>${escapeHtml(r.remarks||"")}</td></tr>`).join("")}</tbody></table></div>`;
+      archives += `<div class="month"><h3>${monthLabel(m)} · ${records.length} record(s)</h3><table><thead><tr><th>Date</th><th>Registered At</th><th>Reference No.</th><th>Category</th><th>Type</th><th>From / To</th><th>Subject</th><th>Remarks</th></tr></thead><tbody>${records.map(r=>`<tr><td>${escapeHtml(r.date_dispatched||"")}</td><td>${escapeHtml(timestamp(r.created_at||""))}</td><td><strong>${escapeHtml(r.registry_number||"")}</strong></td><td>${escapeHtml(r.utility_service||"")}</td><td>${escapeHtml(r.direction||"")}</td><td>${escapeHtml(r.sender_receiver||"")}</td><td>${escapeHtml(r.subject||"")}</td><td>${escapeHtml(r.remarks||"")}</td></tr>`).join("")}</tbody></table></div>`;
     }
     archives += `</section>`;
   }
@@ -508,7 +503,7 @@ async function usersPage(req, message = "") {
 
 async function exportPage(req, params) {
   const rows = filterRows(await getLetters(), params).filter(r => !params.get("direction") || r.direction === params.get("direction"));
-  return layout("Export Registry Report", `${hero("Export Registry Report", "Download letter records for all stakeholders or a selected stakeholder/institution.")}<form class="panel filters export" method="get" action="/export"><select id="export_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Stakeholder Categories")}</select><select name="provider" data-provider-filter="export_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Stakeholders")}</select><select name="direction">${optionList(["Received","Sent"], params.get("direction")||"", "All Letter Types")}</select><a class="btn primary" href="/export-csv?${params.toString()}">Download CSV</a><a class="btn" href="/export">Reset</a></form><section class="panel"><h2>Letters Selected for Export</h2><p><strong>${rows.length}</strong> record(s) selected.</p><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Category</th><th>Stakeholder</th><th>Subject</th><th>Officer</th><th>Status</th></tr></thead><tbody>${tableRows(rows, false)}</tbody></table></section>`, req);
+  return layout("Export Registry Report", `${hero("Export Registry Report", "Download letter records for all stakeholders or a selected stakeholder/institution.")}<form class="panel filters export" method="get" action="/export"><select id="export_utility" name="utility">${optionList(sectors, params.get("utility")||"", "All Stakeholder Categories")}</select><select name="provider" data-provider-filter="export_utility" data-allow-all="true">${optionList(allProviders, params.get("provider")||"", "All Stakeholders")}</select><select name="direction">${optionList(["Received","Sent"], params.get("direction")||"", "All Letter Types")}</select><a class="btn primary" href="/export-csv?${params.toString()}">Download CSV</a><a class="btn" href="/export">Reset</a></form><section class="panel"><h2>Letters Selected for Export</h2><p><strong>${rows.length}</strong> record(s) selected.</p><table><thead><tr><th>Type</th><th>Date</th><th>Registered At</th><th>Reference No.</th><th>From / To</th><th>Letter No.</th><th>Category</th><th>Stakeholder</th><th>Subject</th><th>Officer</th></tr></thead><tbody>${tableRows(rows, false)}</tbody></table></section>`, req);
 }
 
 function csvEscape(v = "") {
@@ -517,7 +512,7 @@ function csvEscape(v = "") {
 }
 
 function toCsv(rows) {
-  const fields = ["direction","date_dispatched","created_at","registry_number","sender_receiver","letter_number","utility_service","utility_provider","subject","action_officer","status","remarks"];
+  const fields = ["direction","date_dispatched","created_at","registry_number","sender_receiver","letter_number","utility_service","utility_provider","subject","action_officer","remarks"];
   return [fields.join(","), ...rows.map(r => fields.map(f => csvEscape(r[f])).join(","))].join("\n");
 }
 
